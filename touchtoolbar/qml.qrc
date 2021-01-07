@@ -1,0 +1,27 @@
+<RCC>
+    <qresource prefix="/">
+        <file>main.qml</file>
+        <file>TButtonStyle.qml</file>
+        <file>config/touch.qml</file>
+        <file>qml/ui/TestChart.qml</file>
+        <file>qml/jbQuick/Charts/SignalChart.js</file>
+        <file>qml/ui/Aging.qml</file>
+        <file>qml/ui/PlateLoadTest.qml</file>
+        <file>qml/ui/DeviceModel.qml</file>
+        <file>qml/ui/TDialog.qml</file>
+        <file>qml/ui/DrawPanel.qml</file>
+        <file>qml/ui/Circle.qml</file>
+        <file>qml/ui/ColorPicker.qml</file>
+        <file>qml/ui/ColorPickerItem.qml</file>
+        <file>qml/ui/Settings.qml</file>
+        <file>qml/ui/Calibration.qml</file>
+        <file>qml/ui/CalibrationPoint.qml</file>
+        <file>qml/ui/CaliTextEdit.qml</file>
+        <file>lang/zh_TW.qm</file>
+        <file>qml/ui/OnboardTestInterface.qml</file>
+        <file>qml/ui/InformationSign.qml</file>
+        <file>lang/zh_CN.qm</file>
+        <file>lang/en_US.qm</file>
+        <file>config/ui.qml</file>
+    </qresource>
+</RCC>

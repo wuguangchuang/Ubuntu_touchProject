@@ -1,0 +1,25 @@
+{
+    "devices": [
+        {
+            "vid":"0x14E1",
+            "pid":"0x3500",
+            "path":"col01",
+            "report_id":"0xCD",
+            "bootloader":0
+        },
+        {
+            "vid":"0xAED7",
+            "pid":"0x0013",
+            "path":"col01",
+            "report_id":"0xCD",
+            "bootloader":0
+        },
+        {
+            "vid":"0xAED7",
+            "pid":"0xFEDC",
+            "path":"col01",
+            "report_id":"0xCD",
+            "bootloader":1
+        }
+    ]
+}

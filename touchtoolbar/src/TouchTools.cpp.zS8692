@@ -1,0 +1,362 @@
+#include "TouchTools.h"
+#include "stdio.h"
+#include "hidapi.h"
+
+#include "sdk/tdebug.h"
+
+#include "sdk/touch.h"
+#include "sdk/TouchManager.h"
+#include <QFile>
+#include <QDir>
+#include <QTextStream>
+
+using namespace Touch;
+#define UPGRADE_FILE_DIR  "config/"
+#define UPGRADE_FILE_NAME "upgrade"
+
+void TouchTools::showMessageDialog(QString title, QString message, int type)
+{
+    presenter->showDialog(title, message, type);
+}
+
+void TouchTools::doUpgradeFireware()
+{
+
+}
+
+void TouchTools::onTouchHotplug(touch_device *dev, const int attached, const void *val)
+{
+    TDEBUG("hotplug: %s, 0x%04x:0x%04x [%d][%p]",
+           dev->touch.model, dev->info->vendor_id,
+           dev->info->product_id, dev->touch.connected, dev);
+
+    appendMessageText(
+                QString().sprintf("%s %s[VID=0x%04x, PID=0x%04x] %s\n",
+                            dev->touch.model,
+                            "", //dev->touch.id_str,
+                            dev->info->vendor_id,
+                            dev->info->product_id,
+                            (dev->touch.connected ? "已连接" : "已断开")));
+}
+
+void TouchTools::doTest()
+{
+
+    //showMessage("测试", "测试成功!");
+}
+
+void TouchTools::setUpgradeProgess(int process)
+{
+    emit presenter->setUpgradeProgress(process);
+}
+
+
+void TouchTools::startTest()
+{
+    if (mTouchManager->firstConnectedDevice() == NULL){
+        showMessageDialog("错误", "没找到连接的设备!!", 2);
+        return;
+    }
+    presenter->setTestButtonEnable(false);
+    mTouchManager->startTest(mTouchManager->firstConnectedDevice(), &mTestLstener);
+}
+
+void TouchTools::UpgradeThread::run()
+{
+    TDEBUG("start upgrade");
+    touch_device *dev;
+    waiting = true;
+    running = true;
+    cancel = false;
+    touchTool->presenter->setUpgradeButtonText("取消升级");
+    do {
+        dev = touchTool->mTouchManager->firstConnectedDevice();
+//        qDebug("@%d @%d @%d", isCanceled(), (dev), (!dev ? 0 : dev->touch.connected));
+        msleep(100);
+        if (isCanceled()) {
+            waiting = false;
+            running = false;
+            cancel = false;
+            return;
+        }
+    } while (dev == NULL || !dev->touch.connected);
+    waiting = false;
+
+    touchTool->presenter->setUpgradeButtonEnable(false);
+    touchTool->presenter->setUpgradeButtonText("开始升级");
+    int result = touchTool->mTouchManager->startUpgrade(touchTool->upgradePath, &touchTool->mUpgradeListener);
+    if (result != 0) {
+        touchTool->showMessage("升级", "升级失败");
+        touchTool->presenter->setUpgradeButtonEnable(true);
+    }
+    running = false;
+}
+
+void TouchTools::startUpgrade()
+{
+    if (upgradeThread.isWaiting()) {
+        upgradeThread.setCancel();
+        presenter->setUpgradeButtonText("开始升级");
+        return;
+    }
+    if (upgradeThread.isRunning())
+        return;
+    presenter->setUpgradeProgress(0);
+    upgradeThread.start();
+}
+
+void TouchTools::upgradeFireware(QString path)
+{
+    setUpgradeFile(path);
+    startUpgrade();
+}
+void TouchTools::setUpgradeFile(QString path)
+{
+    QString fpath = QString().sprintf("%s%s", UPGRADE_FILE_DIR, UPGRADE_FILE_NAME);
+    if (!QDir(UPGRADE_FILE_DIR).exists() && !QDir(".").mkdir(UPGRADE_FILE_DIR)) {
+        fpath = QString(UPGRADE_FILE_NAME);
+    }
+    QFile file(fpath);
+
+    if (!file.open(QIODevice::ReadWrite|QIODevice::Text|QIODevice::Truncate)) {
+        TWARNING("can not open upgrade file");
+    }
+    //TDebug::debug(file.fileName());
+    QTextStream out(&file);
+    out << path;
+    upgradePath = path;
+}
+
+TouchTools::InitSdkThread::InitSdkThread(TouchTools *tool)
+{
+    touchTool = tool;
+}
+
+void TouchTools::InitSdkThread::run(void)
+{
+    TDebug::info("init touch sdk");
+    touchTool->mTouchManager = new TouchManager();
+    touchTool->mCurDevice = touchTool->mTouchManager->firstConnectedDevice();
+    touchTool->mDeviceCount = touchTool->mTouchManager->getDeviceCount();
+    touchTool->mTouchManager->registerHotplug(touchTool);
+    TDebug::debug(QString().sprintf("found %d", touchTool->mDeviceCount));
+
+    if (touchTool->mDeviceCount > 0) {
+        touch_device *dev = touchTool->mTouchManager->firstConnectedDevice();
+        if (dev){
+            touchTool->appendMessageText(
+                        QString().sprintf("%s[VID=0x%04x, PID=0x%04x] 已连接\n",
+                                    dev->touch.model,
+                                    dev->info->vendor_id,
+                                    dev->info->product_id));
+        }
+    }
+
+    QString path = QString().sprintf("%s%s", UPGRADE_FILE_DIR, UPGRADE_FILE_NAME);
+    if (!QDir(UPGRADE_FILE_DIR).exists() && !QDir(".").mkdir(UPGRADE_FILE_DIR)) {
+        path = QString(UPGRADE_FILE_NAME);
+    }
+
+    TINFO("read upgrade file");
+    QFile file(path);
+
+    char upgradeFile[256];
+    qint64 readCount = 0;
+    if (!file.open(QIODevice::ReadOnly|QIODevice::Text)) {
+        TDebug::debug("can not open upgrade file:" + file.errorString());
+    } else {
+        readCount = file.read(upgradeFile, sizeof(upgradeFile) - 1);
+        if (readCount < 0) {
+            TWARNING("read upgrade file failed(%d)", readCount);
+            TDebug::error(file.errorString());
+        } else {
+            TDEBUG("read count %d", readCount);
+            if (readCount == 0) {
+                TDEBUG("read upgrade file, nothing");
+            } else {
+                upgradeFile[readCount] = '\0';
+                TDEBUG("Upgrade file: %s", upgradeFile);
+                touchTool->upgradePath = upgradeFile;
+                touchTool->presenter->setFileText(upgradeFile);
+            }
+        }
+    }
+#if 0
+    if (touchTool->mTouchManager->firstConnectedDevice()) {
+        TouchTestData *data = touchTool->mTouchManager->getSignalDatas(
+                    touchTool->mTouchManager->firstConnectedDevice(), 1);
+        if (data != NULL) {
+            TDEBUG("%d, %d - %d", data->count, data->min, data->max);
+            int size = data->datas.size();
+            QString info = "";
+            for (int i = 0; i < size; i++) {
+                info += " " + data->datas.at(i).toString();
+            }
+            TDebug::debug(info);
+            delete data;
+        }
+    }
+#endif
+
+    TDebug::info("init done");
+}
+
+QVariantMap TouchTools::getSignalItems()
+{
+    unsigned char buf[1024];
+    QVariantMap map;
+    int count = mTouchManager->getSignalTestItems(mTouchManager->firstConnectedDevice(),
+                                      buf, sizeof(buf));
+    TDEBUG("items count: %d", count);
+    if (count <= 0) {
+        map.insert("result", 1);
+        return map;
+    }
+
+    QVariantList items;
+    QVariantMap standards;
+    for (int i = 0; i < count; i++) {
+        items.append(buf[i]);
+
+        touch_test_standard standard;
+        QVariantMap st;
+        mTouchManager->getSignalTestStandard(mTouchManager->firstConnectedDevice(), buf[i], &standard);
+        st.insert("client_max", standard.client_max);
+        st.insert("client_min", standard.client_min);
+        st.insert("factory_max", standard.factory_max);
+        st.insert("factory_min", standard.factory_min);
+        st.insert("count", toWord(standard.count_l, standard.count_h));
+        st.insert("index", buf[i]);
+        qDebug("#@ %d", buf[i]);
+        standards.insert("buf" + i, buf[i]);//st);//QVariant::fromValue(st));
+//        standards.append(QVariant::fromValue(st));
+//        qDebug("%d signal count: %d", buf[i], toWord(standard.count_l, standard.count_h));
+    }
+    map.insert("items", items);
+    map.insert("standards", standards);
+    map.insert("result", 0);
+    QList<QVariant> keys = standards.values();
+    qDebug("ker size = %d", keys.size());
+
+    for (int i = 0; i < keys.size(); i++) {
+        TDebug::debug("## " + keys[i].toString());
+    }
+
+    return map;
+}
+
+QVariantMap TouchTools::getSignalData(QVariant index, int count)
+{
+    QVariantMap map;
+    int no = index.toUInt();
+    if (no < 0) {
+        map.insert("result", 1);
+        TWARNING("%s index invalid");
+        return map;
+    }
+
+    TouchTestData *data = mTouchManager->getSignalDatas(mTouchManager->firstConnectedDevice(), no, count, true);
+    if (data == NULL) {
+        map.insert("result", 1);
+        return map;
+    }
+    map.insert("count", data->count);
+    map.insert("index", data->number);
+    map.insert("min", data->min);
+    map.insert("max", data->max);
+    map.insert("datas", data->datas);
+    map.insert("result", 0);
+
+    delete data;
+    return map;
+}
+
+#define show_line() TDEBUG("%s [%d]", __func__, __LINE__);
+TouchTools::TouchTools(QObject *parent, TouchPresenter *presenter) : QObject(parent),
+    mTestLstener(this), mUpgradeListener(this), initSdkThread(this), upgradeThread(this)
+{
+    if (presenter == NULL) {
+        TDebug::error("presenter is NULL");
+        return;
+    }
+    this->presenter = presenter;
+    presenter->setTouchInterface(this);
+
+    QObject::connect(this->presenter, SIGNAL(upgradeFireware(QString)),
+                     this, SLOT(upgradeFireware(QString)));
+    QObject::connect(this->presenter, SIGNAL(setUpgradeFile(QString)),
+                     this, SLOT(setUpgradeFile(QString)));
+    QObject::connect(this->presenter, SIGNAL(startUpgrade()),
+                     this, SLOT(startUpgrade()));
+
+    QObject::connect(this, SIGNAL(showMessage(QString,QString,int)),
+                     this, SLOT(showMessageDialog(QString,QString,int)));
+
+
+    QObject::connect(presenter, SIGNAL(startTest()),
+                     this, SLOT(startTest()));
+    TINFO("start init thread");
+    initSdkThread.start();
+
+}
+TouchTools::~TouchTools()
+{
+    if (mTouchManager != NULL) {
+        delete mTouchManager;
+    }
+    TDEBUG("TouchTools end");
+}
+
+void TouchTools::onCommandDone(touch_device *dev, touch_package *require, touch_package *reply)
+{
+
+}
+
+void TouchTools::TestListener::inProgress(int progress)
+{
+    manager->setTestProgess(progress);
+}
+
+void TouchTools::TestListener::onTestDone(bool result, QString message)
+{
+    QString info = (result ? "测试通过" : "测试失败!\n") + message;
+
+    manager->showMessage("测试", info);
+    TDebug::info(info);
+    manager->appendMessageText(info);
+    manager->presenter->setTestButtonEnable(true);
+}
+
+void TouchTools::UpgradeListener::inProgress(int progress)
+{
+//    TDEBUG("upgrade %d", progress);
+    switch (progress) {
+    case 1:
+        manager->appendMessageText("固件加载成功\n");
+        break;
+    case 2:
+        manager->appendMessageText("重启设备成功\n");
+        break;
+    case 3:
+        manager->appendMessageText("进入下载模式\n");
+        break;
+    case 4:
+        manager->appendMessageText("开始下载固件\n");
+        break;
+    }
+
+    manager->setUpgradeProgess(progress);
+}
+
+void TouchTools::UpgradeListener::onUpgradeDone(bool result, QString message)
+{
+    TINFO("upgrade result %d", result);
+    TDebug::info(message);
+    if (result) {
+        manager->showMessage("升级", "升级成功!");
+    } else {
+        manager->showMessage("升级", "升级失败!\n" + message);
+    }
+    manager->presenter->setUpgradeButtonEnable(true);
+}
+

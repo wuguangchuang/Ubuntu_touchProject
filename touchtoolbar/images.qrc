@@ -1,0 +1,12 @@
+<RCC>
+    <qresource prefix="/dialog">
+        <file>images/success.png</file>
+        <file>images/noTouch.png</file>
+        <file>images/touch.png</file>
+        <file>images/update.png</file>
+        <file>images/disconnect.png</file>
+        <file>images/error.png</file>
+        <file>images/cancel.png</file>
+        <file>icon.ico</file>
+    </qresource>
+</RCC>
